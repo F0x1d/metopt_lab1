@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Решение задачи линейного программирования симплекс-методом
-Автор: Зотеев Максим Евгеньевич
-Поток: 1.2
-"""
+from fractions import Fraction
 
 
 class SimplexSolver:
@@ -13,13 +8,14 @@ class SimplexSolver:
     EPSILON = 1e-9  # Порог для определения нуля
     MAX_ITERATIONS = 1000  # Максимальное количество итераций
     
-    def __init__(self):
+    def __init__(self, use_fractions=False):
         self.objective_type = None  # 'min' или 'max'
         self.c = []  # Коэффициенты целевой функции (преобразованные для симплекс-метода)
         self.c_original = []  # Исходные коэффициенты (до преобразования max->min)
         self.num_vars = 0  # Количество исходных переменных
         self.num_constraints = 0  # Количество ограничений
         self.constraints = []  # Список ограничений [(коэффициенты, тип, правая_часть)]
+        self.use_fractions = use_fractions  # Использовать ли рациональные числа для точности
         
         # Симплекс-таблица
         self.tableau = []  # Симплекс-таблица
@@ -42,7 +38,6 @@ class SimplexSolver:
             # Если максимизация, преобразуем в минимизацию (max Z = min -Z)
             if self.objective_type == 'max':
                 self.c = [-c for c in self.c_original]
-                print("Преобразование max в min: новые коэффициенты =", self.c)
             
             self.num_vars = len(self.c)
             
@@ -55,19 +50,15 @@ class SimplexSolver:
             # Остальные строки: ограничения
             for i in range(4, 4 + self.num_constraints):
                 parts = lines[i].strip().split()
-                coeffs = list(map(float, parts[:-2]))
-                constraint_type = parts[-2]
-                rhs = float(parts[-1])
+                if self.use_fractions:
+                    coeffs = list(map(Fraction, parts[:-2]))
+                    constraint_type = parts[-2]
+                    rhs = Fraction(parts[-1])
+                else:
+                    coeffs = list(map(float, parts[:-2]))
+                    constraint_type = parts[-2]
+                    rhs = float(parts[-1])
                 self.constraints.append((coeffs, constraint_type, rhs))
-            
-            print("Задача успешно загружена из файла")
-            print(f"Тип: {self.objective_type}")
-            print(f"Целевая функция: Z = {' + '.join([f'{c}*x{i+1}' for i, c in enumerate(self.c_original)])}")
-            print(f"Количество ограничений: {self.num_constraints}\n")
-            
-            for i, (coeffs, ctype, rhs) in enumerate(self.constraints):
-                constraint_str = " + ".join([f"{coeffs[j]}*x{j+1}" for j in range(len(coeffs))])
-                print(f"Ограничение {i+1}: {constraint_str} {ctype} {rhs}")
             
         except Exception as e:
             print(f"Ошибка при чтении файла: {e}")
@@ -75,8 +66,6 @@ class SimplexSolver:
     
     def build_initial_tableau(self):
         """Построение начальной симплекс-таблицы"""
-        print("\n=== Построение начальной симплекс-таблицы ===")
-        
         # Определяем количество дополнительных переменных
         num_slack = 0
         num_surplus = 0
@@ -92,12 +81,6 @@ class SimplexSolver:
                 num_artificial += 1
         
         self.num_total_vars = self.num_vars + num_slack + num_surplus + num_artificial
-        
-        print(f"Исходных переменных: {self.num_vars}")
-        print(f"Остаточных переменных: {num_slack}")
-        print(f"Излишних переменных: {num_surplus}")
-        print(f"Искусственных переменных: {num_artificial}")
-        print(f"Всего переменных: {self.num_total_vars}")
         
         # Создаем начальную симплекс-таблицу
         # Формат: [a11, a12, ..., a1n, b1]
@@ -170,9 +153,6 @@ class SimplexSolver:
         
         # Строка целевой функции для фазы 1 (если есть искусственные переменные)
         if artificial_vars:
-            print(f"\nИспользуем двухфазный симплекс-метод")
-            print(f"Искусственные переменные: {[f'x{v+1}' for v in artificial_vars]}")
-            
             # Фаза 1: минимизируем сумму искусственных переменных
             z_row = [0.0] * (self.num_total_vars + 1)
             for art_var in artificial_vars:
@@ -187,21 +167,15 @@ class SimplexSolver:
             self.tableau.append(z_row)
             
             # Решаем фазу 1
-            print("\n=== ФАЗА 1: Поиск начального допустимого решения ===")
             if not self._simplex_iterations(phase=1):
                 return False
             
             # Проверяем значение целевой функции фазы 1
             if abs(self.tableau[-1][-1]) > self.EPSILON:
-                print(f"\nЗначение целевой функции фазы 1: {self.tableau[-1][-1]:.6f}")
-                print("ЗАДАЧА НЕ ИМЕЕТ ДОПУСТИМЫХ РЕШЕНИЙ!")
-                print("Ограничения противоречивы - не существует точки, удовлетворяющей всем ограничениям одновременно")
+                print("Задача не имеет допустимых решений")
                 return False
             
-            print(f"\nФаза 1 завершена. Найдено допустимое базисное решение.")
-            
             # Переходим к фазе 2
-            print("\n=== ФАЗА 2: Решение основной задачи ===")
             
             # Заменяем строку целевой функции на исходную
             # Для симплекс-метода всегда работаем с -Z (минимизация)
@@ -224,8 +198,6 @@ class SimplexSolver:
             
         else:
             # Если искусственных переменных нет, сразу создаем строку целевой функции
-            print(f"\nИспользуем обычный симплекс-метод (искусственные переменные не требуются)")
-            
             # Для максимизации инвертируем коэффициенты (превращаем max в min)
             z_row = []
             if self.objective_type == 'min':
@@ -239,7 +211,6 @@ class SimplexSolver:
             
             self.tableau.append(z_row)
         
-        print(f"\nНачальный базис: {[f'x{v+1}' for v in self.basis]}")
         return True
     
     def _simplex_iterations(self, phase=2):
@@ -269,7 +240,6 @@ class SimplexSolver:
                 
                 # Если все коэффициенты неотрицательны, оптимум достигнут
                 if entering_col == -1:
-                    print(f"Итерация {iteration}: Оптимальное решение найдено")
                     return True
             else:
                 # Фаза 2: для минимизации ищем наиболее положительный коэффициент
@@ -282,10 +252,7 @@ class SimplexSolver:
                 
                 # Если все коэффициенты неположительны, оптимум достигнут
                 if entering_col == -1:
-                    print(f"Итерация {iteration}: Оптимальное решение найдено")
                     return True
-            
-            print(f"\nИтерация {iteration}: Входящая переменная x{entering_col + 1}")
             
             # Находим выходящую переменную (минимальное отношение)
             leaving_row = -1
@@ -300,16 +267,12 @@ class SimplexSolver:
             
             if leaving_row == -1:
                 if phase == 1:
-                    print("ОШИБКА: Не удалось найти допустимое решение в фазе 1")
-                    print("Это может указывать на проблему в формулировке задачи")
+                    print("Не удалось найти допустимое решение")
                 else:
-                    print("Задача неограничена!")
-                    print(f"Переменная x{entering_col + 1} может увеличиваться бесконечно")
-                    print("Целевая функция может принимать сколь угодно малые значения")
+                    print("Задача неограничена")
                 return False
             
             leaving_var = self.basis[leaving_row]
-            print(f"Выходящая переменная: x{leaving_var + 1} (строка {leaving_row + 1})")
             
             # Обновляем базис
             self.basis[leaving_row] = entering_col
@@ -327,20 +290,12 @@ class SimplexSolver:
                     factor = self.tableau[i][entering_col]
                     for j in range(self.num_total_vars + 1):
                         self.tableau[i][j] -= factor * self.tableau[leaving_row][j]
-            
-            # Выводим текущее значение целевой функции
-            current_z = -self.tableau[-1][-1]
-            print(f"Текущее значение Z: {current_z:.6f}")
         
-        print(f"\nДостигнуто максимальное количество итераций ({max_iterations})")
+        print(f"Достигнуто максимальное количество итераций ({max_iterations})")
         return False
     
     def solve(self):
         """Решение задачи ЗЛП"""
-        print("\n" + "="*70)
-        print("РЕШЕНИЕ ЗАДАЧИ ЛИНЕЙНОГО ПРОГРАММИРОВАНИЯ")
-        print("="*70)
-        
         # Построение начальной симплекс-таблицы
         if not self.build_initial_tableau():
             return None
@@ -367,64 +322,29 @@ class SimplexSolver:
         """Сохранение результата в файл"""
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write("="*70 + "\n")
-                f.write("РЕЗУЛЬТАТ РЕШЕНИЯ ЗАДАЧИ ЛИНЕЙНОГО ПРОГРАММИРОВАНИЯ\n")
-                f.write("="*70 + "\n\n")
-                
-                f.write("Исходная задача:\n")
-                f.write(f"{self.objective_type} Z = ")
-                f.write(" + ".join([f"{self.c_original[i]}*x{i+1}" for i in range(self.num_vars)]))
-                f.write("\n\nПри ограничениях:\n")
-                for i, (coeffs, ctype, rhs) in enumerate(self.constraints):
-                    constraint_str = " + ".join([f"{coeffs[j]}*x{j+1}" for j in range(len(coeffs))])
-                    f.write(f"{constraint_str} {ctype} {rhs}\n")
-                f.write(f"xi >= 0, i = 1..{self.num_vars}\n")
-                
-                f.write("\n" + "-"*70 + "\n\n")
-                
                 if result is None:
-                    f.write("РЕШЕНИЕ:\n")
-                    f.write("Задача не имеет допустимых решений или неограничена.\n")
+                    f.write("Задача не имеет решения\n")
                 else:
                     solution, z_value = result
-                    f.write("РЕШЕНИЕ:\n\n")
-                    f.write("Оптимальная точка:\n")
                     for i, val in enumerate(solution):
-                        f.write(f"x{i+1} = {val:.6f}\n")
-                    f.write(f"\nЗначение целевой функции:\n")
-                    f.write(f"Z = {z_value:.6f}\n")
-                
-                f.write("\n" + "="*70 + "\n")
-            
-            print(f"\nРезультат сохранен в файл {filename}")
+                        f.write(f"{val:.6f}\n")
+                    f.write(f"{z_value:.6f}\n")
         except Exception as e:
             print(f"Ошибка при сохранении результата: {e}")
     
     def print_result(self, result):
         """Вывод результата на экран"""
-        print("\n" + "="*70)
-        print("ИТОГОВОЕ РЕШЕНИЕ")
-        print("="*70)
-        
         if result is None:
-            print("\nЗадача не имеет допустимых решений или неограничена")
+            print("Задача не имеет решения")
         else:
             solution, z_value = result
-            print("\nОптимальная точка:")
             for i, val in enumerate(solution):
-                print(f"  x{i+1} = {val:.6f}")
-            print(f"\nЗначение целевой функции:")
-            print(f"  Z = {z_value:.6f}")
-        
-        print("="*70)
+                print(f"{val:.6f}")
+            print(f"{z_value:.6f}")
 
 
 def main():
     """Основная функция программы"""
-    print("Программа решения задач линейного программирования")
-    print("Автор: Зотеев Максим Евгеньевич, Поток 1.2")
-    print()
-    
     # Создание объекта решателя
     solver = SimplexSolver()
     
